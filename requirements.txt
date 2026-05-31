@@ -1,5 +1,5 @@
 flask
+flask-cors
 psd-tools
 pillow
 gunicorn
-flask-cors
