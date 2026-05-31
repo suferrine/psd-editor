@@ -2,3 +2,4 @@ flask
 psd-tools
 pillow
 gunicorn
+flask-cors
