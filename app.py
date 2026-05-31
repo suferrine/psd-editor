@@ -1,7 +1,7 @@
 from flask import Flask, request, send_file, render_template_string
 from psd_tools import PSDImage
 from PIL import Image, ImageDraw, ImageFont
-import io, os
+import io, os, json
 
 app = Flask(__name__)
 PSD_PATH = os.path.join(os.path.dirname(__file__), 'template.psd')
@@ -152,6 +152,32 @@ def render(psd_path, font_path, summa, valuta, bank, komis, schet, imya, data):
     bg.save(out, format='PNG')
     out.seek(0)
     return out
+
+@app.route('/debug')
+def debug():
+    psd = PSDImage.open(PSD_PATH)
+    result = []
+    for layer in psd.descendants():
+        if layer.kind == 'type':
+            engine = layer.engine_dict
+            info = {
+                'name': str(layer.name),
+                'text': str(layer.text),
+                'bbox': list(layer.bbox),
+                'visible': layer.visible
+            }
+            if 'StyleRun' in engine:
+                run = engine['StyleRun']['RunArray'][0]
+                if 'StyleSheet' in run:
+                    sheet = run['StyleSheet']
+                    info['style'] = {
+                        'font': str(sheet.get('Font', '?')),
+                        'size': str(sheet.get('FontSize', '?')),
+                        'bold': str(sheet.get('FauxBold', False)),
+                        'color': str(sheet.get('FillColor', '?'))
+                    }
+            result.append(info)
+    return json.dumps(result, indent=2, ensure_ascii=False, default=str)
 
 @app.route('/')
 def index():
