@@ -108,29 +108,25 @@ def render(psd_path, font_path, summa, valuta, bank, komis, schet, imya, data):
         bb = draw.textbbox((0,0), text, font=f)
         tw = bb[2] - bb[0]
         th = bb[3] - bb[1]
-        draw.text((x2 - tw, y - th), text, font=f, fill=norm(c))
+        draw.text((x2 - tw, y), text, font=f, fill=norm(c))
 
     def left(text, x, y, size, c):
         f = font(size)
-        bb = draw.textbbox((0,0), text, font=f)
-        th = bb[3] - bb[1]
-        draw.text((x, y - th), text, font=f, fill=norm(c))
+        draw.text((x, y), text, font=f, fill=norm(c))
 
     def center(text, x1, x2, y, size, c):
         f = font(size)
         bb = draw.textbbox((0,0), text, font=f)
         tw = bb[2] - bb[0]
-        th = bb[3] - bb[1]
         cx = x1 + (x2 - x1 - tw) // 2
-        draw.text((cx, y - th), text, font=f, fill=norm(c))
+        draw.text((cx, y), text, font=f, fill=norm(c))
 
     def multicolor(segments, x, y, size):
         f = font(size)
         cx = x
         for text, c in segments:
-            bb = draw.textbbox((0,0), text, font=f)
-            th = bb[3] - bb[1]
-            draw.text((cx, y - th), text, font=f, fill=norm(c))
+            draw.text((cx, y), text, font=f, fill=norm(c))
+            bb = draw.textbbox((cx, y), text, font=f)
             cx += bb[2] - bb[0]
 
     W  = [1, 1,     1,     1    ]
@@ -138,16 +134,34 @@ def render(psd_path, font_path, summa, valuta, bank, komis, schet, imya, data):
     P  = [1, 0.722, 0.384, 0.482]
     GR = [1, 0.294, 0.737, 0.408]
 
+    # Сумма вверху - центр
     center(f"{summa} {valuta}",    163, 427, 160, 39.42, W)
+
+    # Банк - правый край
     right(bank,                         566, 576, 20.42, W)
+
+    # Валюта - правый край
     right(valuta,                       565, 608, 19.42, G)
+
+    # Комиссия - правый край
     right(f"{komis} {valuta}",          563, 785, 21.42, P)
-    right(data,                         562, 845, 19.42, W)
+
+    # Дата справа - правый край
+    right(data,                         562, 844, 19.42, W)
+
+    # Номер счёта - правый край (было center, стало right)
     right(schet,                        535, 729, 19.42, W)
+
+    # Имя - правый край
     right(imya,                         538, 667, 20.42, W)
+
+    # Дата 1 - левый край
     left(data,  64, 322, 17, G)
+
+    # Дата 2 - левый край
     left(data,  64, 404, 17, G)
 
+    # Описание
     static = "Para que la transacción se lleve a cabo, es necesario pagar una"
     left(static, 62, 469, 15.42, W)
     multicolor([
