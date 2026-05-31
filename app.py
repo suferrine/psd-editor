@@ -1,10 +1,11 @@
 from flask import Flask, request, send_file, render_template_string
 from psd_tools import PSDImage
-from psd_tools.psd.engine_data import String as EngineString
+from PIL import Image, ImageDraw, ImageFont
 import io, os
 
 app = Flask(__name__)
 PSD_PATH = os.path.join(os.path.dirname(__file__), 'template.psd')
+FONT_PATH = os.path.join(os.path.dirname(__file__), 'Roboto-Black.ttf')
 
 HTML = '''
 <!DOCTYPE html>
@@ -12,51 +13,45 @@ HTML = '''
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PSD Editor</title>
+<title>Редактор чека</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; background: #f0f2f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  body { font-family: Arial, sans-serif; background: #f0f2f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .card { background: #fff; border-radius: 12px; padding: 32px; width: 100%; max-width: 480px; box-shadow: 0 4px 24px rgba(0,0,0,0.10); }
-  h1 { font-size: 22px; margin-bottom: 24px; color: #1a1a2e; }
-  label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; margin-top: 14px; }
+  h1 { font-size: 20px; margin-bottom: 24px; color: #1a1a2e; }
+  label { display: block; font-size: 12px; color: #888; margin-bottom: 3px; margin-top: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
   input { width: 100%; padding: 9px 12px; border: 1px solid #ddd; border-radius: 7px; font-size: 14px; outline: none; transition: border 0.2s; }
   input:focus { border-color: #4f8ef7; }
-  button { margin-top: 24px; width: 100%; padding: 12px; background: #4f8ef7; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; transition: background 0.2s; }
+  button { margin-top: 24px; width: 100%; padding: 13px; background: #4f8ef7; color: #fff; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; transition: background 0.2s; font-weight: bold; }
   button:hover { background: #2e6fe0; }
   button:disabled { background: #aaa; cursor: not-allowed; }
-  .status { margin-top: 14px; font-size: 14px; color: #555; text-align: center; min-height: 20px; }
+  .status { margin-top: 12px; font-size: 14px; color: #555; text-align: center; min-height: 20px; }
 </style>
 </head>
 <body>
 <div class="card">
   <h1>✏️ Редактор чека</h1>
   <form id="form">
-    <label>Имя получателя</label>
-    <input name="name" value="Baez Brenda Elizabeth" required>
-
-    <label>Дата (3 поля одновременно)</label>
-    <input name="date" value="31/05/2026" required>
-
-    <label>Сумма</label>
-    <input name="amount" value="335.000 ARS" required>
-
-    <label>Номер транзакции</label>
-    <input name="transaction" value="0000168300000025777411" required>
+    <label>Сумма (только цифры, напр. 500.000)</label>
+    <input name="summa" value="9.374.120" required>
 
     <label>Валюта</label>
-    <input name="currency" value="ARS" required>
+    <input name="valuta" value="ARS" required>
 
     <label>Банк</label>
     <input name="bank" value="Mercado Pago" required>
 
-    <label>Баланс</label>
-    <input name="balance" value="9.374.120 ARS" required>
+    <label>Комиссия (только цифры, напр. 335.000)</label>
+    <input name="komis" value="335.000" required>
 
-    <label>Текст описания (строка 1)</label>
-    <input name="desc1" value="Para que la transacción se lleve a cabo, es necesario pagar una">
+    <label>Номер счёта</label>
+    <input name="schet" value="0000168300000025777411" required>
 
-    <label>Текст описания (строка 2)</label>
-    <input name="desc2" value="pago por el monto de 0 ARS/ 335.000 ARS">
+    <label>Имя получателя</label>
+    <input name="imya" value="Baez Brenda Elizabeth" required>
+
+    <label>Дата (во всех 3 местах сразу)</label>
+    <input name="data" value="31/05/2026" required>
 
     <button type="submit" id="btn">⬇️ Скачать PNG</button>
   </form>
@@ -70,15 +65,13 @@ document.getElementById('form').addEventListener('submit', async function(e) {
   btn.disabled = true;
   btn.textContent = '⏳ Генерирую...';
   status.textContent = '';
-  const data = new FormData(this);
   try {
-    const res = await fetch('/generate', { method: 'POST', body: data });
-    if (!res.ok) { throw new Error(await res.text()); }
+    const res = await fetch('/generate', { method: 'POST', body: new FormData(this) });
+    if (!res.ok) throw new Error(await res.text());
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = 'result.png';
+    a.href = URL.createObjectURL(blob);
+    a.download = 'check.png';
     a.click();
     status.textContent = '✅ Готово!';
   } catch(err) {
@@ -92,51 +85,90 @@ document.getElementById('form').addEventListener('submit', async function(e) {
 </html>
 '''
 
+def norm(vals):
+    a, r, g, b = vals
+    return (int(r*255), int(g*255), int(b*255), int(a*255))
+
+def render(psd_path, font_path, summa, valuta, bank, komis, schet, imya, data):
+    psd = PSDImage.open(psd_path)
+    for layer in psd:
+        if layer.kind == 'type':
+            layer.visible = False
+    bg = psd.composite().convert('RGBA')
+    draw = ImageDraw.Draw(bg)
+
+    def font(size):
+        return ImageFont.truetype(font_path, int(size))
+
+    def right(text, x2, y, size, c):
+        f = font(size)
+        bb = draw.textbbox((0,0), text, font=f)
+        draw.text((x2 - (bb[2]-bb[0]), y - bb[1]), text, font=f, fill=norm(c))
+
+    def left(text, x, y, size, c):
+        f = font(size)
+        bb = draw.textbbox((0,0), text, font=f)
+        draw.text((x, y - bb[1]), text, font=f, fill=norm(c))
+
+    def center(text, x1, x2, y, size, c):
+        f = font(size)
+        bb = draw.textbbox((0,0), text, font=f)
+        tw = bb[2] - bb[0]
+        draw.text((x1 + (x2-x1-tw)//2, y - bb[1]), text, font=f, fill=norm(c))
+
+    def multicolor(segments, x, y, size):
+        f = font(size)
+        cx = x
+        for text, c in segments:
+            bb = draw.textbbox((0,0), text, font=f)
+            draw.text((cx, y - bb[1]), text, font=f, fill=norm(c))
+            cx += bb[2] - bb[0]
+
+    W  = [1, 1,     1,     1    ]
+    G  = [1, 0.525, 0.525, 0.525]
+    P  = [1, 0.722, 0.384, 0.482]
+    GR = [1, 0.294, 0.737, 0.408]
+
+    center(f"{summa} {valuta}",    163, 427, 160, 39.42, W)   # сумма вверху
+    right(bank,                         566, 576, 20.42, W)   # банк
+    right(valuta,                       565, 608, 19.42, G)   # валюта
+    right(f"{komis} {valuta}",          563, 785, 21.42, P)   # комиссия
+    right(data,                         562, 845, 19.42, W)   # дата справа
+    center(schet,                  295, 535, 729, 19.42, W)   # номер счёта
+    right(imya,                         538, 667, 20.42, W)   # имя
+    left(data,  64, 322, 17, G)                               # дата 1
+    left(data,  64, 404, 17, G)                               # дата 2
+
+    static = "Para que la transacción se lleve a cabo, es necesario pagar una"
+    left(static, 62, 469, 15.42, W)
+    multicolor([
+        ("pago por el monto de ", W),
+        (f"0 {valuta}",           P),
+        ("/ ",                    W),
+        (f"{komis} {valuta}",     GR),
+    ], 62, 487, 15.42)
+
+    out = io.BytesIO()
+    bg.save(out, format='PNG')
+    out.seek(0)
+    return out
+
 @app.route('/')
 def index():
     return render_template_string(HTML)
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    name     = request.form.get('name', '')
-    date     = request.form.get('date', '')
-    amount   = request.form.get('amount', '')
-    txn      = request.form.get('transaction', '')
-    currency = request.form.get('currency', '')
-    bank     = request.form.get('bank', '')
-    balance  = request.form.get('balance', '')
-    desc1    = request.form.get('desc1', '')
-    desc2    = request.form.get('desc2', '')
+    summa  = request.form.get('summa',  '')
+    valuta = request.form.get('valuta', '')
+    bank   = request.form.get('bank',   '')
+    komis  = request.form.get('komis',  '')
+    schet  = request.form.get('schet',  '')
+    imya   = request.form.get('imya',   '')
+    data   = request.form.get('data',   '')
 
-    psd = PSDImage.open(PSD_PATH)
-    layers = list(psd)
-
-    def set_text(idx, text, trail='\r'):
-        layers[idx].engine_dict['Editor']['Text'] = EngineString(text + trail)
-
-    set_text(1,  name,     '\r\r\r')
-    set_text(2,  date,     '')
-    set_text(3,  date,     '')
-    set_text(4,  date,     '')
-    set_text(5,  amount,   '')
-    set_text(6,  txn,      '')
-    set_text(7,  currency, '')
-    set_text(8,  bank,     '')
-    set_text(9,  balance,  '')
-    layers[11].engine_dict['Editor']['Text'] = EngineString(desc1 + '\r' + desc2)
-
-    buf = io.BytesIO()
-    psd.save(buf)
-    buf.seek(0)
-
-    psd2 = PSDImage.open(buf)
-    img = psd2.composite()
-
-    out = io.BytesIO()
-    img.save(out, format='PNG')
-    out.seek(0)
-
-    return send_file(out, mimetype='image/png', download_name='result.png')
+    out = render(PSD_PATH, FONT_PATH, summa, valuta, bank, komis, schet, imya, data)
+    return send_file(out, mimetype='image/png', download_name='check.png')
 
 if __name__ == '__main__':
     app.run(debug=True)
